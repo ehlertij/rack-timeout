@@ -7,6 +7,7 @@ class Rack::Timeout
                         :active    => :debug,
                         :timed_out => :error,
                         :completed => :info,
+                        :disabled  => :info,
                       }
 
     # creates a logger and registers for state change notifications in Rack::Timeout

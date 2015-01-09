@@ -20,6 +20,7 @@ module Rack
       :active,    # This request is currently being handled
       :timed_out, # This request has run for too long and we're raising a timeout error in it
       :completed, # We're done with this request (also set after having timed out a request)
+      :disabled,  # Timeout has been disabled for this request from within the app_thread
       ]
     ENV_INFO_KEY = 'rack-timeout.info' # key under which each request's RequestDetails instance is stored in its env.
 
@@ -39,6 +40,10 @@ module Rack
           define_method("#{property_name}=") { |v| set_timeout_property(property_name, v) }
         end
         set_timeout_property(property_name, start_value)
+      end
+
+      def disable
+        Thread.current[:rack_timeout_queue] << :disable
       end
     end
 
@@ -90,16 +95,22 @@ module Rack
       RT._set_state! env, :ready
       begin
         app_thread     = Thread.current
+        timeout_queue  = Queue.new
+        app_thread[:rack_timeout_queue] = timeout_queue
+
         timeout_thread = Thread.start do
           loop do
             info.service  = Time.now - time_started_service
+            RT._set_state!(env, :disabled) if !timeout_queue.empty? && timeout_queue.pop == :disable
             sleep_seconds = [1 - (info.service % 1), info.timeout - info.service].min
-            break if sleep_seconds <= 0
+            break if sleep_seconds <= 0 || RT._disabled?(env)
             RT._set_state! env, :active
             sleep(sleep_seconds)
           end
-          RT._set_state! env, :timed_out
-          app_thread.raise(RequestTimeoutError, "Request ran for longer than #{info.timeout} seconds.")
+          unless RT._disabled?(env)
+            RT._set_state! env, :timed_out
+            app_thread.raise(RequestTimeoutError, "Request ran for longer than #{info.timeout} seconds.")
+          end
         end
         response = @app.call(env)
       ensure
@@ -147,6 +158,10 @@ module Rack
       raise "Invalid state: #{state.inspect}" unless VALID_STATES.include? state
       env[ENV_INFO_KEY].state = state
       notify_state_change_observers(env)
+    end
+
+    def self._disabled?(env)
+      env[ENV_INFO_KEY].state == :disabled
     end
 
     ### state change notification-related methods

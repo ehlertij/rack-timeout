@@ -32,6 +32,12 @@ That's all that's required if you want to use the default timeout of 15s. To use
     use Rack::Timeout          # Call as early as possible so rack-timeout runs before all other middleware.
     Rack::Timeout.timeout = 5  # Recommended. If omitted, defaults to 15 seconds.
 
+### Disable timeout for current request
+
+    Rack::Timeout.disable
+
+Disables the timeout for the *current* request only. Useful for requests that take much longer than average, or are too important to interrupt with a timeout.
+
 
 The Rabbit Hole
 ---------------
